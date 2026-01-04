@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text2SQL - Login</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-box">
+            <h1>Text2SQL</h1>
+            <p class="subtitle">Natural Language to SQL Query Generator</p>
+            
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Team Username</label>
+                    <select id="username" name="username" required>
+                        <option value="">Select your team</option>
+                        <option value="sales">Sales Team</option>
+                        <option value="marketing">Marketing Team</option>
+                        <option value="operations">Operations Team</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                
+                <div id="errorMessage" class="error-message" style="display: none;"></div>
+                
+                <button type="submit" class="btn btn-primary">Login</button>
+            </form>
+            
+            <div class="info-box">
+                <p><strong>Demo Credentials:</strong></p>
+                <ul>
+                    <li>Sales: sales / sales123</li>
+                    <li>Marketing: marketing / marketing123</li>
+                    <li>Operations: operations / operations123</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/login.js"></script>
+</body>
+</html>

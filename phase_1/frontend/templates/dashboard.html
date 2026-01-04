@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Text2SQL - Dashboard</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>Text2SQL Dashboard</h1>
+                <div class="user-info">
+                    <span id="teamName"></span>
+                    <span id="databaseName"></span>
+                    <button id="logoutBtn" class="btn btn-secondary">Logout</button>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Left Sidebar - Database Schema -->
+            <aside class="sidebar">
+                <h2>Database Tables</h2>
+                <div id="loadingTables" class="loading">Loading tables...</div>
+                <div id="tablesList" class="tables-list"></div>
+            </aside>
+            
+            <!-- Center - Query Interface -->
+            <main class="query-section">
+                <!-- Natural Language Input -->
+                <div class="card">
+                    <h3>Ask a Question</h3>
+                    <textarea 
+                        id="naturalLanguageInput" 
+                        placeholder="Example: Show me total revenue by product category for last month"
+                        rows="3"
+                    ></textarea>
+                    <button id="generateBtn" class="btn btn-primary">Generate SQL Query</button>
+                </div>
+                
+                <!-- Generated SQL Query -->
+                <div class="card">
+                    <h3>Generated SQL Query</h3>
+                    <div id="loadingQuery" class="loading" style="display: none;">Generating query...</div>
+                    <textarea 
+                        id="sqlQueryInput" 
+                        placeholder="SQL query will appear here..."
+                        rows="8"
+                    ></textarea>
+                    <div class="button-group">
+                        <button id="executeBtn" class="btn btn-success" disabled>Execute Query</button>
+                        <button id="clearBtn" class="btn btn-secondary">Clear</button>
+                    </div>
+                </div>
+                
+                <!-- Query Results -->
+                <div class="card">
+                    <h3>Query Results</h3>
+                    <div id="loadingResults" class="loading" style="display: none;">Executing query...</div>
+                    <div id="errorMessage" class="error-message" style="display: none;"></div>
+                    <div id="resultsInfo" class="results-info" style="display: none;"></div>
+                    <div id="resultsContainer" class="results-container"></div>
+                </div>
+            </main>
+            
+            <!-- Right Sidebar - Schema Details -->
+            <aside class="schema-panel">
+                <h2>Table Schema</h2>
+                <div id="schemaDetails" class="schema-details">
+                    <p class="info-text">Click on a table to view its schema</p>
+                </div>
+            </aside>
+        </div>
+    </div>
+    
+    <script src="/static/dashboard.js"></script>
+</body>
+</html>
