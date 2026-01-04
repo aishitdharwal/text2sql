@@ -1,5 +1,8 @@
 // Dashboard page JavaScript
-const API_BASE_URL = 'http://localhost:8080/api';
+// Get API base URL from environment or use relative path
+const API_BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:8080/api'
+    : `http://${window.location.hostname}:8080/api`;
 
 // State management
 let sessionId = null;
