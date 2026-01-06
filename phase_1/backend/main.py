@@ -499,6 +499,82 @@ async def execute_query(request: ExecuteRequest):
         }, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/feedback")
+async def submit_feedback(request: FeedbackRequest):
+    """
+    Submit user feedback on generated SQL query
+    """
+    log_with_context(
+        logger, "info", "Feedback submission",
+        session_id=request.session_id,
+        rating=request.rating
+    )
+    
+    if request.session_id not in active_sessions:
+        logger.warning("Feedback submission failed: Invalid session", extra={
+            "extra_fields": {"session_id": request.session_id}
+        })
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+    
+    # Validate rating
+    if request.rating not in ['thumbs_up', 'thumbs_down']:
+        raise HTTPException(status_code=400, detail="Invalid rating. Must be 'thumbs_up' or 'thumbs_down'")
+    
+    try:
+        session_info = active_sessions[request.session_id]
+        db_manager = session_info["db_manager"]
+        team = session_info["team"]
+        
+        # Insert feedback into database
+        feedback_sql = """
+            INSERT INTO query_feedback 
+            (session_id, team_name, natural_language_query, generated_sql, rating, feedback_comment)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING feedback_id
+        """
+        
+        result = db_manager.execute_insert(
+            feedback_sql,
+            (
+                request.session_id,
+                team,
+                request.natural_language_query,
+                request.generated_sql,
+                request.rating,
+                request.feedback_comment
+            )
+        )
+        
+        if not result['success']:
+            raise Exception(result.get('error', 'Unknown error'))
+        
+        feedback_id = result['id']
+        
+        logger.info(f"Feedback submitted successfully", extra={
+            "extra_fields": {
+                "session_id": request.session_id,
+                "team": team,
+                "rating": request.rating,
+                "feedback_id": feedback_id,
+                "has_comment": bool(request.feedback_comment)
+            }
+        })
+        
+        return {
+            "success": True,
+            "message": "Feedback submitted successfully",
+            "feedback_id": feedback_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Error submitting feedback", extra={
+            "extra_fields": {
+                "session_id": request.session_id,
+                "error": str(e)
+            }
+        }, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Startup and shutdown events
 @app.on_event("startup")
 async def startup_event():

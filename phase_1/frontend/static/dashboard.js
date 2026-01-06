@@ -10,6 +10,10 @@ let team = null;
 let database = null;
 let currentTables = [];
 let currentSchemas = {};
+let currentQuery = {  // Track current query for feedback
+    naturalLanguage: null,
+    generatedSql: null
+};
 
 // Initialize dashboard
 function init() {
@@ -46,6 +50,10 @@ function setupEventListeners() {
     
     // Clear
     document.getElementById('clearBtn').addEventListener('click', clearQuery);
+    
+    // Feedback buttons
+    document.getElementById('thumbsUpBtn').addEventListener('click', () => submitFeedback('thumbs_up'));
+    document.getElementById('thumbsDownBtn').addEventListener('click', () => submitFeedback('thumbs_down'));
     
     // Enable execute button when SQL is manually entered
     document.getElementById('sqlQueryInput').addEventListener('input', (e) => {
@@ -189,6 +197,24 @@ async function generateQuery() {
         if (data.success) {
             sqlQueryInput.value = data.sql_query;
             executeBtn.disabled = false;
+            
+            // Store query for feedback
+            currentQuery.naturalLanguage = naturalLanguageInput;
+            currentQuery.generatedSql = data.sql_query;
+            
+            // Show feedback buttons
+            const feedbackSection = document.getElementById('feedbackSection');
+            console.log('Feedback section element:', feedbackSection);
+            if (feedbackSection) {
+                feedbackSection.style.display = 'block';
+                console.log('Feedback section displayed');
+            } else {
+                console.error('Feedback section not found!');
+            }
+            
+            document.getElementById('feedbackMessage').style.display = 'none';
+            document.getElementById('thumbsUpBtn').disabled = false;
+            document.getElementById('thumbsDownBtn').disabled = false;
         } else {
             errorDiv.textContent = `Error generating query: ${data.error}`;
             errorDiv.style.display = 'block';
@@ -292,10 +318,68 @@ function displayResults(data) {
     resultsContainer.innerHTML = html;
 }
 
+async function submitFeedback(rating) {
+    const feedbackMessageDiv = document.getElementById('feedbackMessage');
+    const thumbsUpBtn = document.getElementById('thumbsUpBtn');
+    const thumbsDownBtn = document.getElementById('thumbsDownBtn');
+    
+    // Disable buttons to prevent double submission
+    thumbsUpBtn.disabled = true;
+    thumbsDownBtn.disabled = true;
+    
+    let feedbackComment = null;
+    
+    // If thumbs down, ask for optional comment
+    if (rating === 'thumbs_down') {
+        feedbackComment = prompt('(Optional) Please tell us what went wrong with the generated SQL:');
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/feedback`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                session_id: sessionId,
+                natural_language_query: currentQuery.naturalLanguage,
+                generated_sql: currentQuery.generatedSql,
+                rating: rating,
+                feedback_comment: feedbackComment
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            feedbackMessageDiv.textContent = 'Thank you for your feedback!';
+            feedbackMessageDiv.style.display = 'block';
+            feedbackMessageDiv.className = 'feedback-message success';
+        } else {
+            feedbackMessageDiv.textContent = 'Failed to submit feedback. Please try again.';
+            feedbackMessageDiv.style.display = 'block';
+            feedbackMessageDiv.className = 'feedback-message error';
+            // Re-enable buttons on error
+            thumbsUpBtn.disabled = false;
+            thumbsDownBtn.disabled = false;
+        }
+    } catch (error) {
+        console.error('Error submitting feedback:', error);
+        feedbackMessageDiv.textContent = 'Network error submitting feedback.';
+        feedbackMessageDiv.style.display = 'block';
+        feedbackMessageDiv.className = 'feedback-message error';
+        // Re-enable buttons on error
+        thumbsUpBtn.disabled = false;
+        thumbsDownBtn.disabled = false;
+    }
+}
+
 function clearQuery() {
     document.getElementById('naturalLanguageInput').value = '';
     document.getElementById('sqlQueryInput').value = '';
     document.getElementById('executeBtn').disabled = true;
+    document.getElementById('feedbackSection').style.display = 'none';
+    currentQuery = { naturalLanguage: null, generatedSql: null };
     clearResults();
 }
 

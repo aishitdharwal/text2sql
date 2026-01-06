@@ -55,6 +55,20 @@
                         <button id="executeBtn" class="btn btn-success" disabled>Execute Query</button>
                         <button id="clearBtn" class="btn btn-secondary">Clear</button>
                     </div>
+                    
+                    <!-- Feedback Section -->
+                    <div id="feedbackSection" class="feedback-section" style="display: none;">
+                        <div class="feedback-header">Was this SQL query helpful?</div>
+                        <div class="feedback-buttons">
+                            <button id="thumbsUpBtn" class="btn-feedback" title="Good query">
+                                👍 Yes
+                            </button>
+                            <button id="thumbsDownBtn" class="btn-feedback" title="Needs improvement">
+                                👎 No
+                            </button>
+                        </div>
+                        <div id="feedbackMessage" class="feedback-message" style="display: none;"></div>
+                    </div>
                 </div>
                 
                 <!-- Query Results -->

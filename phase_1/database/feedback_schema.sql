@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS query_feedback (
     team_name VARCHAR(50) NOT NULL,
     natural_language_query TEXT NOT NULL,
     generated_sql TEXT NOT NULL,
-    rating VARCHAR(10) NOT NULL CHECK (rating IN ('thumbs_up', 'thumbs_down')),
+    rating VARCHAR(20) NOT NULL CHECK (rating IN ('thumbs_up', 'thumbs_down')),
     feedback_comment TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

@@ -319,18 +319,76 @@ class DatabaseManager:
                 'success': False,
                 'error': str(e)
             }
+    
+    def execute_insert(self, query: str, params: tuple) -> Dict[str, Any]:
+        """
+        Execute an INSERT query with parameters and return the inserted ID
+        
+        Args:
+            query: SQL INSERT query with RETURNING clause
+            params: Tuple of parameters for the query
+            
+        Returns:
+            Dict with 'success' and 'id' (if successful) or 'error' (if failed)
+        """
+        logger.info(f"Executing INSERT query", extra={
+            "extra_fields": {
+                "database": self.database_name,
+                "param_count": len(params) if params else 0
+            }
+        })
+        
+        start_time = time.time()
+        
+        try:
+            with self.connection.cursor() as cursor:
+                cursor.execute(query, params)
+                result_id = cursor.fetchone()[0] if cursor.description else None
+                self.connection.commit()
+                
+                duration = time.time() - start_time
+                
+                logger.info(f"INSERT query executed successfully", extra={
+                    "extra_fields": {
+                        "database": self.database_name,
+                        "inserted_id": result_id,
+                        "execution_time_ms": round(duration * 1000, 2)
+                    }
+                })
+                
+                return {
+                    'success': True,
+                    'id': result_id
+                }
+                
+        except psycopg2.Error as e:
+            self.connection.rollback()
+            duration = time.time() - start_time
+            
+            logger.warning(f"INSERT query failed: SQL error", extra={
+                "extra_fields": {
+                    "database": self.database_name,
+                    "error": str(e),
+                    "error_code": e.pgcode if hasattr(e, 'pgcode') else None,
+                    "execution_time_ms": round(duration * 1000, 2)
+                }
+            })
+            
+            return {
+                'success': False,
+                'error': str(e)
+            }
             
         except Exception as e:
             self.connection.rollback()
             duration = time.time() - start_time
             
-            logger.error(f"Query execution failed: Unexpected error", extra={
+            logger.error(f"INSERT query failed: Unexpected error", extra={
                 "extra_fields": {
                     "database": self.database_name,
                     "error": str(e),
                     "error_type": type(e).__name__,
-                    "execution_time_ms": round(duration * 1000, 2),
-                    "query_preview": query_preview
+                    "execution_time_ms": round(duration * 1000, 2)
                 }
             }, exc_info=True)
             
