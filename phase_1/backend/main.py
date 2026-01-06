@@ -1,23 +1,39 @@
 """
-FastAPI application - Main entry point
+FastAPI application - Main entry point with comprehensive logging
 """
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
-import logging
+import time
+import uuid
 
 from config import settings, TEAM_CREDENTIALS
 from database import DatabaseManager
 from sql_generator import SQLGenerator
+from cloudwatch_logger import setup_logging, get_logger, log_with_context
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+# Setup CloudWatch logging
+setup_logging(
+    app_name="text2sql-backend",
+    log_level=settings.log_level,
+    log_group=settings.cloudwatch_log_group,
+    region_name=settings.aws_region,
+    aws_access_key_id=settings.aws_access_key_id if settings.aws_access_key_id else None,
+    aws_secret_access_key=settings.aws_secret_access_key if settings.aws_secret_access_key else None,
+    enable_console=settings.enable_console_logging
 )
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+# Log application startup
+logger.info("Starting Text2SQL Backend Application", extra={
+    "extra_fields": {
+        "db_host": settings.db_host,
+        "db_port": settings.db_port,
+        "app_port": settings.app_port
+    }
+})
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -34,6 +50,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+logger.info("CORS middleware configured")
 
 # Store active sessions (in production, use Redis or similar)
 active_sessions: Dict[str, Dict[str, Any]] = {}
@@ -58,11 +76,67 @@ class ExecuteRequest(BaseModel):
     session_id: str
     sql_query: str
 
+class FeedbackRequest(BaseModel):
+    session_id: str
+    natural_language_query: str
+    generated_sql: str
+    rating: str  # 'thumbs_up' or 'thumbs_down'
+    feedback_comment: Optional[str] = None
+
+# Middleware for request logging
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all incoming requests with timing"""
+    request_id = str(uuid.uuid4())
+    start_time = time.time()
+    
+    # Log incoming request
+    log_with_context(
+        logger, "info", f"Incoming request: {request.method} {request.url.path}",
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        client_ip=request.client.host if request.client else "unknown"
+    )
+    
+    # Process request
+    try:
+        response = await call_next(request)
+        
+        # Calculate duration
+        duration = time.time() - start_time
+        
+        # Log response
+        log_with_context(
+            logger, "info", f"Request completed: {request.method} {request.url.path}",
+            request_id=request_id,
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_ms=round(duration * 1000, 2)
+        )
+        
+        return response
+        
+    except Exception as e:
+        duration = time.time() - start_time
+        logger.error(f"Request failed: {request.method} {request.url.path}", extra={
+            "extra_fields": {
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "duration_ms": round(duration * 1000, 2),
+                "error": str(e)
+            }
+        }, exc_info=True)
+        raise
+
 # API Endpoints
 
 @app.get("/")
 async def root():
     """Health check endpoint"""
+    logger.debug("Health check requested")
     return {"status": "healthy", "service": "Text2SQL API"}
 
 @app.post("/api/login", response_model=LoginResponse)
@@ -71,19 +145,37 @@ async def login(request: LoginRequest):
     Authenticate user and create session
     """
     username = request.username.lower()
-    password = request.password
+    
+    log_with_context(
+        logger, "info", "Login attempt",
+        username=username,
+        attempt_timestamp=time.time()
+    )
     
     # Validate credentials
     if username not in TEAM_CREDENTIALS:
+        logger.warning(f"Login failed: Invalid username", extra={
+            "extra_fields": {"username": username, "reason": "user_not_found"}
+        })
         raise HTTPException(status_code=401, detail="Invalid username")
     
-    if TEAM_CREDENTIALS[username]["password"] != password:
+    if TEAM_CREDENTIALS[username]["password"] != request.password:
+        logger.warning(f"Login failed: Invalid password", extra={
+            "extra_fields": {"username": username, "reason": "invalid_password"}
+        })
         raise HTTPException(status_code=401, detail="Invalid password")
     
     # Create session
-    import uuid
     session_id = str(uuid.uuid4())
     database_name = TEAM_CREDENTIALS[username]["database"]
+    
+    logger.info(f"Creating session for user", extra={
+        "extra_fields": {
+            "username": username,
+            "database": database_name,
+            "session_id": session_id
+        }
+    })
     
     # Initialize database connection
     try:
@@ -94,10 +186,18 @@ async def login(request: LoginRequest):
         active_sessions[session_id] = {
             "team": username,
             "database": database_name,
-            "db_manager": db_manager
+            "db_manager": db_manager,
+            "created_at": time.time()
         }
         
-        logger.info(f"User {username} logged in successfully")
+        logger.info(f"Login successful", extra={
+            "extra_fields": {
+                "username": username,
+                "database": database_name,
+                "session_id": session_id,
+                "active_sessions_count": len(active_sessions)
+            }
+        })
         
         return LoginResponse(
             success=True,
@@ -107,7 +207,13 @@ async def login(request: LoginRequest):
             session_id=session_id
         )
     except Exception as e:
-        logger.error(f"Login error: {str(e)}")
+        logger.error(f"Login failed: Database connection error", extra={
+            "extra_fields": {
+                "username": username,
+                "database": database_name,
+                "error": str(e)
+            }
+        }, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Database connection failed: {str(e)}")
 
 @app.post("/api/logout")
@@ -115,12 +221,42 @@ async def logout(session_id: str):
     """
     End user session and close database connection
     """
+    log_with_context(
+        logger, "info", "Logout request",
+        session_id=session_id
+    )
+    
     if session_id in active_sessions:
-        db_manager = active_sessions[session_id]["db_manager"]
-        db_manager.disconnect()
+        session_info = active_sessions[session_id]
+        team = session_info.get("team")
+        
+        try:
+            db_manager = session_info["db_manager"]
+            db_manager.disconnect()
+        except Exception as e:
+            logger.error(f"Error disconnecting database during logout", extra={
+                "extra_fields": {
+                    "session_id": session_id,
+                    "team": team,
+                    "error": str(e)
+                }
+            }, exc_info=True)
+        
         del active_sessions[session_id]
+        
+        logger.info(f"Logout successful", extra={
+            "extra_fields": {
+                "session_id": session_id,
+                "team": team,
+                "active_sessions_count": len(active_sessions)
+            }
+        })
+        
         return {"success": True, "message": "Logged out successfully"}
     
+    logger.warning(f"Logout failed: Invalid session", extra={
+        "extra_fields": {"session_id": session_id}
+    })
     return {"success": False, "message": "Invalid session"}
 
 @app.get("/api/tables")
@@ -128,15 +264,40 @@ async def get_tables(session_id: str):
     """
     Get list of all tables in the user's database
     """
+    log_with_context(
+        logger, "info", "Get tables request",
+        session_id=session_id
+    )
+    
     if session_id not in active_sessions:
+        logger.warning("Tables request failed: Invalid session", extra={
+            "extra_fields": {"session_id": session_id}
+        })
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     
     try:
-        db_manager = active_sessions[session_id]["db_manager"]
+        session_info = active_sessions[session_id]
+        db_manager = session_info["db_manager"]
+        
         tables = db_manager.get_tables()
+        
+        logger.info(f"Tables retrieved successfully", extra={
+            "extra_fields": {
+                "session_id": session_id,
+                "team": session_info["team"],
+                "database": session_info["database"],
+                "table_count": len(tables)
+            }
+        })
+        
         return {"success": True, "tables": tables}
     except Exception as e:
-        logger.error(f"Error fetching tables: {str(e)}")
+        logger.error(f"Error fetching tables", extra={
+            "extra_fields": {
+                "session_id": session_id,
+                "error": str(e)
+            }
+        }, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/schema")
@@ -144,20 +305,50 @@ async def get_schema(session_id: str, table_name: Optional[str] = None):
     """
     Get schema for a specific table or all tables
     """
+    log_with_context(
+        logger, "info", "Get schema request",
+        session_id=session_id,
+        table_name=table_name
+    )
+    
     if session_id not in active_sessions:
+        logger.warning("Schema request failed: Invalid session", extra={
+            "extra_fields": {"session_id": session_id}
+        })
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     
     try:
-        db_manager = active_sessions[session_id]["db_manager"]
+        session_info = active_sessions[session_id]
+        db_manager = session_info["db_manager"]
         
         if table_name:
             schema = db_manager.get_table_schema(table_name)
+            logger.info(f"Table schema retrieved", extra={
+                "extra_fields": {
+                    "session_id": session_id,
+                    "table_name": table_name,
+                    "column_count": len(schema)
+                }
+            })
             return {"success": True, "table": table_name, "schema": schema}
         else:
             schemas = db_manager.get_all_schemas()
+            logger.info(f"All schemas retrieved", extra={
+                "extra_fields": {
+                    "session_id": session_id,
+                    "team": session_info["team"],
+                    "table_count": len(schemas)
+                }
+            })
             return {"success": True, "schemas": schemas}
     except Exception as e:
-        logger.error(f"Error fetching schema: {str(e)}")
+        logger.error(f"Error fetching schema", extra={
+            "extra_fields": {
+                "session_id": session_id,
+                "table_name": table_name,
+                "error": str(e)
+            }
+        }, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/generate-query")
@@ -165,15 +356,41 @@ async def generate_query(request: QueryRequest):
     """
     Generate SQL query from natural language
     """
+    log_with_context(
+        logger, "info", "Generate query request",
+        session_id=request.session_id,
+        query_length=len(request.natural_language_query)
+    )
+    
     if request.session_id not in active_sessions:
+        logger.warning("Query generation failed: Invalid session", extra={
+            "extra_fields": {"session_id": request.session_id}
+        })
         raise HTTPException(status_code=401, detail="Invalid or expired session")
+    
+    start_time = time.time()
     
     try:
         session = active_sessions[request.session_id]
         db_manager = session["db_manager"]
         
+        logger.debug(f"Fetching database schemas", extra={
+            "extra_fields": {
+                "session_id": request.session_id,
+                "database": session["database"]
+            }
+        })
+        
         # Get database schema
         schemas = db_manager.get_all_schemas()
+        
+        logger.debug(f"Calling Claude API for SQL generation", extra={
+            "extra_fields": {
+                "session_id": request.session_id,
+                "natural_language_query": request.natural_language_query[:100],  # First 100 chars
+                "table_count": len(schemas)
+            }
+        })
         
         # Generate SQL using Claude
         sql_gen = SQLGenerator()
@@ -183,9 +400,36 @@ async def generate_query(request: QueryRequest):
             database_name=session["database"]
         )
         
+        duration = time.time() - start_time
+        
+        if result.get("success"):
+            logger.info(f"SQL query generated successfully", extra={
+                "extra_fields": {
+                    "session_id": request.session_id,
+                    "team": session["team"],
+                    "query_length": len(result.get("sql_query", "")),
+                    "generation_time_ms": round(duration * 1000, 2)
+                }
+            })
+        else:
+            logger.error(f"SQL generation failed", extra={
+                "extra_fields": {
+                    "session_id": request.session_id,
+                    "error": result.get("error"),
+                    "generation_time_ms": round(duration * 1000, 2)
+                }
+            })
+        
         return result
     except Exception as e:
-        logger.error(f"Error generating query: {str(e)}")
+        duration = time.time() - start_time
+        logger.error(f"Error generating query", extra={
+            "extra_fields": {
+                "session_id": request.session_id,
+                "error": str(e),
+                "generation_time_ms": round(duration * 1000, 2)
+            }
+        }, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/execute-query")
@@ -193,19 +437,117 @@ async def execute_query(request: ExecuteRequest):
     """
     Execute SQL query and return results
     """
+    log_with_context(
+        logger, "info", "Execute query request",
+        session_id=request.session_id,
+        sql_query_length=len(request.sql_query)
+    )
+    
     if request.session_id not in active_sessions:
+        logger.warning("Query execution failed: Invalid session", extra={
+            "extra_fields": {"session_id": request.session_id}
+        })
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     
+    start_time = time.time()
+    
     try:
-        db_manager = active_sessions[request.session_id]["db_manager"]
+        session_info = active_sessions[request.session_id]
+        db_manager = session_info["db_manager"]
+        
+        logger.debug(f"Executing SQL query", extra={
+            "extra_fields": {
+                "session_id": request.session_id,
+                "team": session_info["team"],
+                "database": session_info["database"],
+                "sql_query": request.sql_query[:200]  # First 200 chars for security
+            }
+        })
+        
         result = db_manager.execute_query(request.sql_query)
+        
+        duration = time.time() - start_time
+        
+        if result.get("success"):
+            logger.info(f"Query executed successfully", extra={
+                "extra_fields": {
+                    "session_id": request.session_id,
+                    "team": session_info["team"],
+                    "row_count": result.get("row_count", result.get("rows_affected", 0)),
+                    "execution_time_ms": round(duration * 1000, 2)
+                }
+            })
+        else:
+            logger.warning(f"Query execution failed", extra={
+                "extra_fields": {
+                    "session_id": request.session_id,
+                    "team": session_info["team"],
+                    "error": result.get("error"),
+                    "execution_time_ms": round(duration * 1000, 2)
+                }
+            })
+        
         return result
     except Exception as e:
-        logger.error(f"Error executing query: {str(e)}")
+        duration = time.time() - start_time
+        logger.error(f"Error executing query", extra={
+            "extra_fields": {
+                "session_id": request.session_id,
+                "error": str(e),
+                "execution_time_ms": round(duration * 1000, 2)
+            }
+        }, exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+# Startup and shutdown events
+@app.on_event("startup")
+async def startup_event():
+    """Log application startup"""
+    logger.info("Application startup complete", extra={
+        "extra_fields": {
+            "app_name": "Text2SQL Backend",
+            "version": "1.0.0",
+            "port": settings.app_port
+        }
+    })
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on application shutdown"""
+    logger.info("Application shutdown initiated", extra={
+        "extra_fields": {
+            "active_sessions_count": len(active_sessions)
+        }
+    })
+    
+    # Close all active database connections
+    for session_id, session_info in active_sessions.items():
+        try:
+            session_info["db_manager"].disconnect()
+            logger.info(f"Closed database connection for session", extra={
+                "extra_fields": {
+                    "session_id": session_id,
+                    "team": session_info.get("team")
+                }
+            })
+        except Exception as e:
+            logger.error(f"Error closing database connection", extra={
+                "extra_fields": {
+                    "session_id": session_id,
+                    "error": str(e)
+                }
+            }, exc_info=True)
+    
+    logger.info("Application shutdown complete")
 
 if __name__ == "__main__":
     import uvicorn
+    logger.info("Starting uvicorn server", extra={
+        "extra_fields": {
+            "host": settings.app_host,
+            "port": settings.app_port
+        }
+    })
     uvicorn.run(
         "main:app",
         host=settings.app_host,

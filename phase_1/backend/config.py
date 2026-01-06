@@ -18,6 +18,14 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8080
     
+    # CloudWatch Logging (Optional)
+    aws_region: str = "ap-south-1"
+    aws_access_key_id: str = ""
+    aws_secret_access_key: str = ""
+    cloudwatch_log_group: str = "/aws/text2sql/backend"
+    enable_console_logging: bool = True  # Set to False in production
+    log_level: str = "INFO"
+    
     class Config:
         env_file = ".env"
         case_sensitive = False

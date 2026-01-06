@@ -15,8 +15,8 @@ source venv/bin/activate
 
 # Install dependencies
 echo "Installing dependencies..."
-pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 
 # Run the application
 echo "Starting Frontend server on port 3000..."
-python app.py
+python3 app.py

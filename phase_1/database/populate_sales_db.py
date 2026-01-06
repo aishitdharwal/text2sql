@@ -1,27 +1,44 @@
 """
 Generate sample data for Sales Database
 Run this after creating the schema
+Usage: python3 populate_sales_db.py [host] [user] [password] [port]
 """
 
 import psycopg2
 from datetime import datetime, timedelta
 import random
+import sys
 
-# Database connection parameters - UPDATE THESE
-DB_CONFIG = {
-    'host': 'text2sql-cluster.cluster-cmey4eonndgc.ap-south-1.rds.amazonaws.com',
-    'database': 'sales_db',
-    'user': 'postgres',
-    'password': 'YourSecurePassword123',
-    'port': 5432
-}
+def get_db_config():
+    """Get database configuration from command line or defaults"""
+    if len(sys.argv) >= 5:
+        return {
+            'host': sys.argv[1],
+            'database': 'sales_db',
+            'user': sys.argv[2],
+            'password': sys.argv[3],
+            'port': int(sys.argv[4])
+        }
+    else:
+        # Default configuration - UPDATE THESE
+        return {
+            'host': 'text2sql-cluster.cluster-cmey4eonndgc.ap-south-1.rds.amazonaws.com',
+            'database': 'sales_db',
+            'user': 'postgres',
+            'password': 'YourSecurePassword123',
+            'port': 5432
+        }
 
 def get_connection():
-    return psycopg2.connect(**DB_CONFIG)
+    config = get_db_config()
+    return psycopg2.connect(**config)
 
 def populate_customers(conn):
-    """Populate customers table with 20 records"""
+    """Populate customers table with 50 records"""
     cursor = conn.cursor()
+    
+    # Clear existing data
+    cursor.execute("TRUNCATE TABLE customers CASCADE;")
     
     customers_data = [
         ('John', 'Doe', 'john.doe@email.com', '555-0101', '123 Main St', 'New York', 'NY', '10001'),
@@ -44,6 +61,36 @@ def populate_customers(conn):
         ('Jessica', 'Garcia', 'jessica.garcia@email.com', '555-0118', '135 Magnolia Way', 'Seattle', 'WA', '98101'),
         ('Thomas', 'Martinez', 'thomas.m@email.com', '555-0119', '246 Dogwood Pl', 'Denver', 'CO', '80201'),
         ('Karen', 'Robinson', 'karen.robinson@email.com', '555-0120', '879 Beech Ct', 'Boston', 'MA', '02101'),
+        ('Daniel', 'Clark', 'daniel.clark@email.com', '555-0121', '456 Elm Ave', 'Atlanta', 'GA', '30301'),
+        ('Nancy', 'Rodriguez', 'nancy.rodriguez@email.com', '555-0122', '789 Oak Dr', 'Miami', 'FL', '33101'),
+        ('Matthew', 'Lewis', 'matthew.lewis@email.com', '555-0123', '321 Pine Ln', 'Portland', 'OR', '97201'),
+        ('Betty', 'Lee', 'betty.lee@email.com', '555-0124', '654 Maple Rd', 'Las Vegas', 'NV', '89101'),
+        ('Mark', 'Walker', 'mark.walker@email.com', '555-0125', '987 Cedar St', 'Detroit', 'MI', '48201'),
+        ('Donna', 'Hall', 'donna.hall@email.com', '555-0126', '147 Birch Pl', 'Baltimore', 'MD', '21201'),
+        ('Paul', 'Allen', 'paul.allen@email.com', '555-0127', '258 Spruce Way', 'Milwaukee', 'WI', '53201'),
+        ('Carol', 'Young', 'carol.young@email.com', '555-0128', '369 Ash Ave', 'Nashville', 'TN', '37201'),
+        ('Steven', 'Hernandez', 'steven.h@email.com', '555-0129', '741 Willow Dr', 'Oklahoma City', 'OK', '73101'),
+        ('Sandra', 'King', 'sandra.king@email.com', '555-0130', '852 Poplar Rd', 'Louisville', 'KY', '40201'),
+        ('Kenneth', 'Wright', 'kenneth.wright@email.com', '555-0131', '963 Hickory Ln', 'Memphis', 'TN', '38101'),
+        ('Ashley', 'Lopez', 'ashley.lopez@email.com', '555-0132', '159 Walnut St', 'Richmond', 'VA', '23218'),
+        ('Kevin', 'Hill', 'kevin.hill@email.com', '555-0133', '357 Chestnut Way', 'New Orleans', 'LA', '70112'),
+        ('Kimberly', 'Scott', 'kimberly.scott@email.com', '555-0134', '486 Sycamore Pl', 'Salt Lake City', 'UT', '84101'),
+        ('Brian', 'Green', 'brian.green@email.com', '555-0135', '264 Redwood Ave', 'Raleigh', 'NC', '27601'),
+        ('Lisa', 'Adams', 'lisa.adams@email.com', '555-0136', '795 Sequoia Dr', 'Birmingham', 'AL', '35201'),
+        ('Jason', 'Baker', 'jason.baker@email.com', '555-0137', '135 Magnolia Rd', 'Tucson', 'AZ', '85701'),
+        ('Helen', 'Gonzalez', 'helen.gonzalez@email.com', '555-0138', '246 Dogwood Ln', 'Fresno', 'CA', '93701'),
+        ('Jeff', 'Nelson', 'jeff.nelson@email.com', '555-0139', '879 Beech Way', 'Sacramento', 'CA', '94203'),
+        ('Deborah', 'Carter', 'deborah.carter@email.com', '555-0140', '456 Elm Pl', 'Kansas City', 'MO', '64101'),
+        ('Gary', 'Mitchell', 'gary.mitchell@email.com', '555-0141', '789 Oak St', 'Mesa', 'AZ', '85201'),
+        ('Angela', 'Perez', 'angela.perez@email.com', '555-0142', '321 Pine Ave', 'Omaha', 'NE', '68101'),
+        ('Ryan', 'Roberts', 'ryan.roberts@email.com', '555-0143', '654 Maple Way', 'Cleveland', 'OH', '44101'),
+        ('Melissa', 'Turner', 'melissa.turner@email.com', '555-0144', '987 Cedar Pl', 'Miami', 'FL', '33130'),
+        ('Nicholas', 'Phillips', 'nicholas.phillips@email.com', '555-0145', '147 Birch Dr', 'Oakland', 'CA', '94601'),
+        ('Stephanie', 'Campbell', 'stephanie.campbell@email.com', '555-0146', '258 Spruce Rd', 'Tulsa', 'OK', '74101'),
+        ('Jacob', 'Parker', 'jacob.parker@email.com', '555-0147', '369 Ash Ln', 'Minneapolis', 'MN', '55401'),
+        ('Amy', 'Evans', 'amy.evans@email.com', '555-0148', '741 Willow St', 'Wichita', 'KS', '67201'),
+        ('Eric', 'Edwards', 'eric.edwards@email.com', '555-0149', '852 Poplar Ave', 'Arlington', 'TX', '76010'),
+        ('Virginia', 'Collins', 'virginia.collins@email.com', '555-0150', '963 Hickory Way', 'Bakersfield', 'CA', '93301'),
     ]
     
     for customer in customers_data:
@@ -53,11 +100,14 @@ def populate_customers(conn):
         """, customer)
     
     conn.commit()
-    print("✓ Inserted 20 customers")
+    print(f"  ✓ Inserted {len(customers_data)} customers")
 
 def populate_products(conn):
-    """Populate products table with 20 records"""
+    """Populate products table with 30 records"""
     cursor = conn.cursor()
+    
+    # Clear existing data
+    cursor.execute("TRUNCATE TABLE products CASCADE;")
     
     products_data = [
         ('Wireless Bluetooth Headphones', 'Electronics', 'AudioTech', 79.99, 35.00, 150, 'Premium wireless headphones with noise cancellation'),
@@ -80,6 +130,16 @@ def populate_products(conn):
         ('Dumbbells Set 20lb', 'Sports & Fitness', 'FitLife', 79.99, 32.00, 85, 'Pair of adjustable dumbbells'),
         ('Electric Kettle', 'Home & Kitchen', 'BrewMaster', 39.99, 16.00, 190, 'Fast-boiling electric kettle with auto shut-off'),
         ('Sunglasses Polarized', 'Accessories', 'SportPro', 59.99, 22.00, 210, 'UV protection polarized sunglasses'),
+        ('Gaming Keyboard RGB', 'Electronics', 'TechGear', 99.99, 45.00, 95, 'Mechanical gaming keyboard with RGB lighting'),
+        ('Bamboo Cutting Board', 'Home & Kitchen', 'ChefPro', 29.99, 12.00, 175, 'Extra large bamboo cutting board'),
+        ('Foam Roller', 'Sports & Fitness', 'FitLife', 34.99, 14.00, 130, 'High-density foam roller for muscle recovery'),
+        ('Essential Oil Diffuser', 'Home & Kitchen', 'CleanAir', 39.99, 15.00, 200, 'Ultrasonic aromatherapy diffuser'),
+        ('USB-C Cable 6ft', 'Electronics', 'TechGear', 14.99, 4.00, 600, 'Fast charging USB-C cable'),
+        ('Stainless Steel Pan 12in', 'Home & Kitchen', 'ChefPro', 69.99, 30.00, 80, 'Professional grade stainless steel frying pan'),
+        ('Jump Rope Speed', 'Sports & Fitness', 'FitLife', 19.99, 7.00, 250, 'Adjustable speed jump rope'),
+        ('Shower Filter', 'Home & Kitchen', 'CleanAir', 44.99, 18.00, 140, '15-stage shower water filter'),
+        ('Laptop Stand Aluminum', 'Accessories', 'TechGear', 49.99, 20.00, 120, 'Ergonomic aluminum laptop stand'),
+        ('Green Tea Organic 100 Bags', 'Food & Beverage', 'BrewMaster', 12.99, 5.00, 380, 'Organic green tea bags'),
     ]
     
     for product in products_data:
@@ -89,11 +149,14 @@ def populate_products(conn):
         """, product)
     
     conn.commit()
-    print("✓ Inserted 20 products")
+    print(f"  ✓ Inserted {len(products_data)} products")
 
 def populate_sales_reps(conn):
     """Populate sales_reps table with 20 records"""
     cursor = conn.cursor()
+    
+    # Clear existing data
+    cursor.execute("TRUNCATE TABLE sales_reps CASCADE;")
     
     hire_dates = [datetime.now().date() - timedelta(days=random.randint(180, 1825)) for _ in range(20)]
     
@@ -127,33 +190,63 @@ def populate_sales_reps(conn):
         """, rep)
     
     conn.commit()
-    print("✓ Inserted 20 sales reps")
+    print(f"  ✓ Inserted {len(sales_reps_data)} sales reps")
 
 def populate_orders_and_items(conn):
-    """Populate orders and order_items tables with 20 orders"""
+    """Populate orders and order_items tables with 100 orders"""
     cursor = conn.cursor()
+    
+    # Clear existing data
+    cursor.execute("TRUNCATE TABLE orders CASCADE;")
+    cursor.execute("TRUNCATE TABLE order_items CASCADE;")
+    
+    # Get all available product IDs and prices
+    cursor.execute("SELECT product_id, price FROM products ORDER BY product_id")
+    products = cursor.fetchall()
+    
+    if not products:
+        print("  ✗ No products found! Run populate_products first.")
+        return
+    
+    product_map = {pid: price for pid, price in products}
+    available_product_ids = list(product_map.keys())
+    
+    # Get all available customer IDs
+    cursor.execute("SELECT customer_id FROM customers ORDER BY customer_id")
+    customer_ids = [row[0] for row in cursor.fetchall()]
+    
+    if not customer_ids:
+        print("  ✗ No customers found! Run populate_customers first.")
+        return
+    
+    # Get all available sales rep IDs
+    cursor.execute("SELECT rep_id FROM sales_reps ORDER BY rep_id")
+    rep_ids = [row[0] for row in cursor.fetchall()]
+    
+    if not rep_ids:
+        print("  ✗ No sales reps found! Run populate_sales_reps first.")
+        return
     
     statuses = ['pending', 'processing', 'shipped', 'delivered', 'delivered', 'delivered']
     payment_methods = ['credit_card', 'debit_card', 'paypal', 'credit_card', 'credit_card']
     
-    for i in range(20):
-        customer_id = random.randint(1, 20)
-        rep_id = random.randint(1, 20)
-        order_date = datetime.now() - timedelta(days=random.randint(1, 90))
+    for i in range(100):
+        customer_id = random.choice(customer_ids)
+        rep_id = random.choice(rep_ids)
+        order_date = datetime.now() - timedelta(days=random.randint(1, 180))
         status = random.choice(statuses)
         payment_method = random.choice(payment_methods)
         
-        # Get random products for this order (1-3 items)
-        num_items = random.randint(1, 3)
-        product_ids = random.sample(range(1, 21), num_items)
+        # Get random products for this order (1-4 items)
+        num_items = min(random.randint(1, 4), len(available_product_ids))
+        selected_product_ids = random.sample(available_product_ids, num_items)
         
         # Calculate total
         total_amount = 0
         items = []
         
-        for product_id in product_ids:
-            cursor.execute("SELECT price FROM products WHERE product_id = %s", (product_id,))
-            price = cursor.fetchone()[0]
+        for product_id in selected_product_ids:
+            price = product_map[product_id]
             quantity = random.randint(1, 3)
             subtotal = float(price) * quantity
             total_amount += subtotal
@@ -176,11 +269,14 @@ def populate_orders_and_items(conn):
             """, (order_id, product_id, quantity, price, subtotal))
     
     conn.commit()
-    print("✓ Inserted 20 orders with their items")
+    print(f"  ✓ Inserted 100 orders with items")
 
 def populate_revenue(conn):
     """Populate revenue table based on orders"""
     cursor = conn.cursor()
+    
+    # Clear existing data
+    cursor.execute("TRUNCATE TABLE revenue CASCADE;")
     
     cursor.execute("""
         SELECT o.order_id, o.order_date, o.total_amount, sr.commission_rate
@@ -209,15 +305,14 @@ def populate_revenue(conn):
         """, (order_id, order_date.date(), total_amount, cost_of_goods, net_revenue, commission_paid))
     
     conn.commit()
-    print("✓ Inserted revenue records")
+    print(f"  ✓ Inserted {len(orders)} revenue records")
 
 def main():
-    print("Populating Sales Database...")
-    print("=" * 50)
+    print("\nPopulating Sales Database...")
     
     try:
         conn = get_connection()
-        print("✓ Connected to database")
+        print("  ✓ Connected to database")
         
         populate_customers(conn)
         populate_products(conn)
@@ -226,11 +321,10 @@ def main():
         populate_revenue(conn)
         
         conn.close()
-        print("=" * 50)
-        print("✓ Sales database population complete!")
+        print("  ✓ Sales database population complete!\n")
         
     except Exception as e:
-        print(f"✗ Error: {str(e)}")
+        print(f"  ✗ Error: {str(e)}")
         raise
 
 if __name__ == "__main__":

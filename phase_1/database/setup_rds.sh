@@ -10,8 +10,8 @@ MASTER_USERNAME="postgres"
 MASTER_PASSWORD="YourSecurePassword123"  # Change this to a secure password
 DB_NAME="postgres"
 REGION="ap-south-1"  # Change to your preferred region
-SECURITY_GROUP_ID="sg-03f3f12f4e2bc83dc"  # Replace with your security group ID
-SUBNET_GROUP_NAME="default"  # Replace with your DB subnet group name
+SECURITY_GROUP_ID="sg-01ba4baf83c0f23b4"  # Replace with your security group ID
+SUBNET_GROUP_NAME="default-vpc-0348868ea501856ca"  # Replace with your DB subnet group name
 
 echo "Creating Aurora Serverless V2 Cluster..."
 

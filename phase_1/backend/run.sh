@@ -22,8 +22,8 @@ source venv/bin/activate
 
 # Install dependencies
 echo "Installing dependencies..."
-pip install -r requirements.txt --upgrade
+python3 -m pip install -r requirements.txt --upgrade
 
 # Run the application
 echo "Starting FastAPI server on port 8080..."
-python main.py
+python3 main.py
