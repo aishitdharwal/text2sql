@@ -1,79 +1,99 @@
 """
-Claude API integration for SQL query generation with comprehensive logging
+Claude API integration for SQL query generation with LangFuse observability
 """
 from anthropic import Anthropic
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from config import settings
-from cloudwatch_logger import get_logger, log_with_context
+from cloudwatch_logger import get_logger
 import time
 
 logger = get_logger(__name__)
 
+# Try to import LangFuse
+try:
+    from langfuse import Langfuse
+    from langfuse.types import TraceContext
+    LANGFUSE_AVAILABLE = True
+except ImportError:
+    LANGFUSE_AVAILABLE = False
+    Langfuse = None
+    TraceContext = None
+
+# Initialize LangFuse client
+langfuse_client: Optional[Langfuse] = None
+if LANGFUSE_AVAILABLE and settings.enable_langfuse and settings.langfuse_public_key and settings.langfuse_secret_key:
+    try:
+        langfuse_client = Langfuse(
+            public_key=settings.langfuse_public_key,
+            secret_key=settings.langfuse_secret_key,
+            host=settings.langfuse_host
+        )
+        logger.info("✅ LangFuse observability enabled", extra={
+            "extra_fields": {"host": settings.langfuse_host}
+        })
+    except Exception as e:
+        logger.warning(f"Failed to initialize LangFuse, continuing without observability", extra={
+            "extra_fields": {"error": str(e)}
+        })
+        langfuse_client = None
+else:
+    if not LANGFUSE_AVAILABLE:
+        logger.info("LangFuse module not available - install with: pip install langfuse")
+    elif not settings.enable_langfuse:
+        logger.info("LangFuse observability disabled (ENABLE_LANGFUSE=false)")
+    else:
+        logger.info("LangFuse observability disabled (missing credentials)")
+
 class SQLGenerator:
-    """Generates SQL queries from natural language using Claude with logging"""
+    """Generates SQL queries from natural language using Claude"""
     
     def __init__(self):
-        logger.debug("Initializing SQLGenerator")
-        
-        try:
-            self.client = Anthropic(api_key=settings.anthropic_api_key)
-            self.model = "claude-sonnet-4-5-20250929"
-            
-            logger.info("SQLGenerator initialized successfully", extra={
-                "extra_fields": {
-                    "model": self.model,
-                    "api_key_prefix": settings.anthropic_api_key[:10] + "..."
-                }
-            })
-            
-        except Exception as e:
-            logger.error("Failed to initialize SQLGenerator", extra={
-                "extra_fields": {"error": str(e)}
-            }, exc_info=True)
-            raise
+        self.client = Anthropic(api_key=settings.anthropic_api_key)
+        self.model = "claude-sonnet-4-5-20250929"
+        logger.info("SQLGenerator initialized successfully", extra={
+            "extra_fields": {"model": self.model}
+        })
     
     def generate_sql(
         self, 
         natural_language_query: str, 
         database_schema: Dict[str, Any],
-        database_name: str
+        database_name: str,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """
-        Generate SQL query from natural language
+        """Generate SQL query from natural language"""
         
-        Args:
-            natural_language_query: User's question in plain English
-            database_schema: Complete database schema with table and column info
-            database_name: Name of the database (for context)
+        start_time = time.time()
+        trace_id = langfuse_client.create_trace_id() if langfuse_client else None
         
-        Returns:
-            Dict with 'success', 'sql_query', and optionally 'explanation' or 'error'
-        """
+        # Create trace context
+        trace_context = None
+        if langfuse_client and trace_id:
+            trace_context = TraceContext(
+                trace_id=trace_id,
+                user_id=user_id,
+                session_id=session_id,
+                tags=["text2sql", database_name, user_id] if user_id else ["text2sql", database_name],
+                metadata={
+                    "database": database_name,
+                    "team": user_id
+                }
+            )
+        
         logger.info("Starting SQL generation", extra={
             "extra_fields": {
                 "database": database_name,
                 "query_length": len(natural_language_query),
-                "table_count": len(database_schema),
-                "query_preview": natural_language_query[:100]
+                "trace_id": trace_id
             }
         })
         
-        start_time = time.time()
-        
         try:
-            # Build the schema context for Claude
-            logger.debug("Formatting database schema for Claude")
+            # Format schema
             schema_text = self._format_schema(database_schema)
             
-            schema_size = len(schema_text)
-            logger.debug(f"Schema formatted", extra={
-                "extra_fields": {
-                    "schema_size_chars": schema_size,
-                    "table_count": len(database_schema)
-                }
-            })
-            
-            # Create the prompt
+            # Create prompt
             prompt = f"""You are an expert SQL query generator for PostgreSQL databases. Your task is to convert natural language questions into accurate SQL queries.
 
 DATABASE: {database_name}
@@ -89,69 +109,69 @@ INSTRUCTIONS:
 3. Use appropriate WHERE clauses for filtering
 4. Use GROUP BY and aggregate functions when needed
 5. Always use table aliases for better readability
-6. Include LIMIT clauses when appropriate to avoid returning too many rows
-7. Return ONLY the SQL query without any markdown formatting, explanations, or code blocks
-8. The query should be ready to execute as-is
+6. Include LIMIT clauses when appropriate
+7. Return ONLY the SQL query without any markdown formatting or explanations
 
-IMPORTANT: 
-- Return ONLY the raw SQL query
-- Do NOT include ```sql or ``` markers
-- Do NOT include any explanatory text before or after the query
-- The query should be a single statement that can be executed directly
+IMPORTANT: Return ONLY the raw SQL query
 
 SQL QUERY:"""
-
-            prompt_size = len(prompt)
-            logger.debug(f"Prompt created", extra={
-                "extra_fields": {
-                    "prompt_size_chars": prompt_size,
-                    "estimated_tokens": prompt_size // 4  # Rough estimate
-                }
-            })
             
             # Call Claude API
-            logger.info("Calling Claude API", extra={
-                "extra_fields": {
-                    "model": self.model,
-                    "max_tokens": 1024
-                }
-            })
-            
             api_start_time = time.time()
             
             message = self.client.messages.create(
                 model=self.model,
                 max_tokens=1024,
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
+                messages=[{"role": "user", "content": prompt}]
             )
             
             api_duration = time.time() - api_start_time
             
-            logger.info("Claude API response received", extra={
-                "extra_fields": {
-                    "api_call_time_ms": round(api_duration * 1000, 2),
-                    "response_tokens": getattr(message.usage, 'output_tokens', 0) if hasattr(message, 'usage') else 0,
-                    "input_tokens": getattr(message.usage, 'input_tokens', 0) if hasattr(message, 'usage') else 0
-                }
-            })
-            
-            # Extract the SQL query from response
+            # Extract SQL
             sql_query = message.content[0].text.strip()
-            
-            # Clean up the query (remove any accidental markdown if present)
             sql_query = self._clean_sql_query(sql_query)
             
             total_duration = time.time() - start_time
             
+            # Log to LangFuse using create_event with trace_context
+            if langfuse_client and trace_context:
+                try:
+                    input_tokens = message.usage.input_tokens if hasattr(message, 'usage') else 0
+                    output_tokens = message.usage.output_tokens if hasattr(message, 'usage') else 0
+                    
+                    # Calculate cost (Claude Sonnet 4.5: $3 per M input, $15 per M output)
+                    cost = (input_tokens * 3 / 1_000_000) + (output_tokens * 15 / 1_000_000)
+                    
+                    langfuse_client.create_event(
+                        trace_context=trace_context,
+                        name="text2sql_generation",
+                        input=natural_language_query,
+                        output=sql_query,
+                        metadata={
+                            "database": database_name,
+                            "team": user_id,
+                            "model": self.model,
+                            "input_tokens": input_tokens,
+                            "output_tokens": output_tokens,
+                            "total_tokens": input_tokens + output_tokens,
+                            "cost_usd": round(cost, 6),
+                            "api_latency_ms": round(api_duration * 1000, 2),
+                            "total_latency_ms": round(total_duration * 1000, 2),
+                            "query_length": len(sql_query),
+                            "success": True
+                        },
+                        level="DEFAULT"
+                    )
+                    langfuse_client.flush()
+                    logger.debug("✅ Logged to LangFuse successfully")
+                except Exception as e:
+                    logger.debug(f"Failed to log to LangFuse: {e}")
+            
             logger.info("SQL generation successful", extra={
                 "extra_fields": {
                     "database": database_name,
-                    "generated_query_length": len(sql_query),
                     "total_time_ms": round(total_duration * 1000, 2),
-                    "api_time_ms": round(api_duration * 1000, 2),
-                    "generated_query_preview": sql_query[:200]
+                    "trace_id": trace_id
                 }
             })
             
@@ -163,13 +183,34 @@ SQL QUERY:"""
         except Exception as e:
             total_duration = time.time() - start_time
             
+            # Log error to LangFuse
+            if langfuse_client and trace_context:
+                try:
+                    langfuse_client.create_event(
+                        trace_context=trace_context,
+                        name="text2sql_generation_error",
+                        input=natural_language_query,
+                        metadata={
+                            "database": database_name,
+                            "team": user_id,
+                            "model": self.model,
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                            "total_latency_ms": round(total_duration * 1000, 2),
+                            "success": False
+                        },
+                        level="ERROR",
+                        status_message=str(e)
+                    )
+                    langfuse_client.flush()
+                except Exception as trace_error:
+                    logger.debug(f"Failed to log error to LangFuse: {trace_error}")
+            
             logger.error("SQL generation failed", extra={
                 "extra_fields": {
                     "database": database_name,
                     "error": str(e),
-                    "error_type": type(e).__name__,
-                    "total_time_ms": round(total_duration * 1000, 2),
-                    "natural_language_query": natural_language_query[:100]
+                    "trace_id": trace_id
                 }
             }, exc_info=True)
             
@@ -179,9 +220,7 @@ SQL QUERY:"""
             }
     
     def _format_schema(self, database_schema: Dict[str, Any]) -> str:
-        """Format database schema into readable text for Claude"""
-        logger.debug(f"Formatting schema for {len(database_schema)} tables")
-        
+        """Format database schema into readable text"""
         schema_lines = []
         
         for table_name, table_info in database_schema.items():
@@ -198,31 +237,9 @@ SQL QUERY:"""
                     col_line += " [NOT NULL]"
                 schema_lines.append(col_line)
         
-        result = "\n".join(schema_lines)
-        
-        logger.debug(f"Schema formatted: {len(result)} characters, {len(schema_lines)} lines")
-        
-        return result
+        return "\n".join(schema_lines)
     
     def _clean_sql_query(self, sql_query: str) -> str:
-        """Clean up SQL query by removing markdown formatting"""
-        original_length = len(sql_query)
-        
-        # Remove ```sql and ``` markers
+        """Remove markdown formatting from SQL"""
         sql_query = sql_query.replace('```sql', '').replace('```', '')
-        
-        # Remove leading/trailing whitespace
-        sql_query = sql_query.strip()
-        
-        cleaned_length = len(sql_query)
-        
-        if original_length != cleaned_length:
-            logger.debug(f"SQL query cleaned", extra={
-                "extra_fields": {
-                    "original_length": original_length,
-                    "cleaned_length": cleaned_length,
-                    "removed_chars": original_length - cleaned_length
-                }
-            })
-        
-        return sql_query
+        return sql_query.strip()

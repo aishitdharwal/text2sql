@@ -31,9 +31,16 @@ class Settings(BaseSettings):
     cache_table_name: str = "text2sql_query_cache"
     cache_ttl_days: int = 30
     
+    # LangFuse Observability (Optional)
+    enable_langfuse: bool = True
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "https://cloud.langfuse.com"  # or self-hosted URL
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"  # Ignore extra fields from .env
 
 settings = Settings()
 

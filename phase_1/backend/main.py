@@ -447,10 +447,13 @@ async def generate_query(request: QueryRequest):
         
         # Generate SQL using Claude
         sql_gen = SQLGenerator()
+        
         result = sql_gen.generate_sql(
             natural_language_query=request.natural_language_query,
             database_schema=schemas,
-            database_name=session["database"]
+            database_name=session["database"],
+            user_id=session["team"],
+            session_id=request.session_id
         )
         
         duration = time.time() - start_time
