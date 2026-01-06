@@ -13,6 +13,7 @@ from config import settings, TEAM_CREDENTIALS
 from database import DatabaseManager
 from sql_generator import SQLGenerator
 from cloudwatch_logger import setup_logging, get_logger, log_with_context
+from query_cache import QueryCache
 
 # Setup CloudWatch logging
 setup_logging(
@@ -25,6 +26,31 @@ setup_logging(
     enable_console=settings.enable_console_logging
 )
 logger = get_logger(__name__)
+
+# Initialize query cache
+query_cache = None
+if settings.enable_cache:
+    try:
+        query_cache = QueryCache(
+            table_name=settings.cache_table_name,
+            region_name=settings.aws_region,
+            ttl_days=settings.cache_ttl_days,
+            aws_access_key_id=settings.aws_access_key_id if settings.aws_access_key_id else None,
+            aws_secret_access_key=settings.aws_secret_access_key if settings.aws_secret_access_key else None
+        )
+        logger.info("Query cache enabled", extra={
+            "extra_fields": {
+                "cache_table": settings.cache_table_name,
+                "ttl_days": settings.cache_ttl_days
+            }
+        })
+    except Exception as e:
+        logger.warning(f"Failed to initialize query cache, continuing without cache", extra={
+            "extra_fields": {"error": str(e)}
+        })
+        query_cache = None
+else:
+    logger.info("Query cache disabled")
 
 # Log application startup
 logger.info("Starting Text2SQL Backend Application", extra={
@@ -384,6 +410,33 @@ async def generate_query(request: QueryRequest):
         # Get database schema
         schemas = db_manager.get_all_schemas()
         
+        # Check cache first
+        cached_sql = None
+        if query_cache:
+            cached_sql = query_cache.get(
+                natural_language_query=request.natural_language_query,
+                database_name=session["database"],
+                schemas=schemas
+            )
+        
+        if cached_sql:
+            duration = time.time() - start_time
+            
+            logger.info(f"SQL query returned from cache", extra={
+                "extra_fields": {
+                    "session_id": request.session_id,
+                    "team": session["team"],
+                    "cached": True,
+                    "generation_time_ms": round(duration * 1000, 2)
+                }
+            })
+            
+            return {
+                "success": True,
+                "sql_query": cached_sql,
+                "cached": True
+            }
+        
         logger.debug(f"Calling Claude API for SQL generation", extra={
             "extra_fields": {
                 "session_id": request.session_id,
@@ -403,14 +456,27 @@ async def generate_query(request: QueryRequest):
         duration = time.time() - start_time
         
         if result.get("success"):
+            # Store in cache
+            if query_cache and result.get("sql_query"):
+                query_cache.put(
+                    natural_language_query=request.natural_language_query,
+                    database_name=session["database"],
+                    schemas=schemas,
+                    generated_sql=result["sql_query"]
+                )
+            
             logger.info(f"SQL query generated successfully", extra={
                 "extra_fields": {
                     "session_id": request.session_id,
                     "team": session["team"],
                     "query_length": len(result.get("sql_query", "")),
+                    "cached": False,
                     "generation_time_ms": round(duration * 1000, 2)
                 }
             })
+            
+            # Add cached flag to response
+            result["cached"] = False
         else:
             logger.error(f"SQL generation failed", extra={
                 "extra_fields": {

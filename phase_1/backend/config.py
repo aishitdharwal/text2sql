@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     enable_console_logging: bool = True  # Set to False in production
     log_level: str = "INFO"
     
+    # Query Caching (Optional)
+    enable_cache: bool = True
+    cache_table_name: str = "text2sql_query_cache"
+    cache_ttl_days: int = 30
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
